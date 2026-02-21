@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+ * This code belongs to the author. No modification or republication 
+ * is allowed without explicit permission.
+ */
 package adapters
 
 import "context"
@@ -30,3 +35,4 @@ type Adapter interface {
 	// SendTyping sends a typing/processing indicator (optional — no-op if not supported).
 	SendTyping(channelID string)
 }
+

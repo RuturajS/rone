@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+ * This code belongs to the author. No modification or republication 
+ * is allowed without explicit permission.
+ */
 package cmd
 
 import (
@@ -46,3 +51,4 @@ func runStop(cmd *cobra.Command, args []string) error {
 	fmt.Printf("sent stop signal to daemon (pid %d)\n", pid)
 	return nil
 }
+

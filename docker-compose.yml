@@ -1,3 +1,6 @@
+# Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+# This code belongs to the author. No modification or republication 
+# is allowed without explicit permission.
 version: '3.8'
 
 services:
@@ -47,3 +50,4 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+

@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+ * This code belongs to the author. No modification or republication 
+ * is allowed without explicit permission.
+ */
 package config
 
 import (
@@ -140,3 +145,4 @@ func validate(cfg *Config) error {
 	}
 	return nil
 }
+

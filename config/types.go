@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+ * This code belongs to the author. No modification or republication 
+ * is allowed without explicit permission.
+ */
 package config
 
 import "time"
@@ -34,7 +39,8 @@ type SlackConfig struct {
 
 type OllamaConfig struct {
 	Endpoint   string        `yaml:"endpoint"`
-	Model      string        `yaml:"model"`
+	Model      string        `yaml:"model"`   // current/default model
+	Models     []string      `yaml:"models"`  // list of acceptable models
 	Timeout    time.Duration `yaml:"timeout"`
 	MaxRetries int           `yaml:"max_retries"`
 }
@@ -57,3 +63,4 @@ type LogConfig struct {
 	Level  string `yaml:"level"`
 	Format string `yaml:"format"`
 }
+

@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+ * This code belongs to the author. No modification or republication 
+ * is allowed without explicit permission.
+ */
 package ollama
 
 import (
@@ -11,6 +16,7 @@ import (
 	"net/http"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -83,6 +89,7 @@ type Client struct {
 	timeout    time.Duration
 	maxRetries int
 	http       *http.Client
+	mu         sync.RWMutex
 }
 
 // NewClient creates a new Ollama client.
@@ -94,6 +101,20 @@ func NewClient(endpoint, model string, timeout time.Duration, maxRetries int) *C
 		maxRetries: maxRetries,
 		http:       &http.Client{},
 	}
+}
+
+// SetModel changes the model used for future requests.
+func (c *Client) SetModel(model string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.model = model
+}
+
+// GetModel returns the currently configured model.
+func (c *Client) GetModel() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.model
 }
 
 // Ping checks if Ollama is reachable and lists available models.
@@ -176,8 +197,12 @@ func FailSafeMessage() string {
 
 // generate sends a prompt to Ollama with retry logic.
 func (c *Client) generate(parentCtx context.Context, prompt string) (string, error) {
+	c.mu.RLock()
+	currentModel := c.model
+	c.mu.RUnlock()
+
 	body := GenerateRequest{
-		Model:  c.model,
+		Model:  currentModel,
 		Prompt: prompt,
 		Stream: false,
 	}
@@ -248,3 +273,4 @@ func ipCommand() string {
 	}
 	return "ip addr"
 }
+

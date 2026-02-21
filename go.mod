@@ -1,3 +1,6 @@
+# Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+# This code belongs to the author. No modification or republication 
+# is allowed without explicit permission.
 module github.com/RuturajS/rone
 
 go 1.24.0
@@ -30,3 +33,4 @@ require (
 	modernc.org/strutil v1.2.0 // indirect
 	modernc.org/token v1.1.0 // indirect
 )
+
