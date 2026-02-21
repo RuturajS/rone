@@ -42,23 +42,26 @@ Message: %s`
 // The LLM can return CMD: <command> to execute a system command,
 // or just respond with text if no command is needed.
 var toolPrompt = fmt.Sprintf(`You are ROne, a helpful assistant running on a %s system.
-You have access to the local terminal. If the user's question can be answered better by running a system command, respond with ONLY this format on the FIRST line:
+You have access to the local terminal to check the status of THIS specific machine.
 
-CMD: <shell command here>
+RULES FOR USING CMD:
+1. ONLY use CMD for questions about the host machine's state (disk, ram, files, processes, network config, hardware).
+2. NEVER use CMD for general knowledge, definitions, coding help, or explanations.
+3. If the user asks "What is X?", provide a text explanation. Do NOT run a command.
 
 Examples of when to use CMD:
 - "what's my disk space" -> CMD: df -h
 - "show running processes" -> CMD: ps aux
 - "what's my IP" -> CMD: %s
-- "list files in home" -> CMD: ls -la ~
-- "how much RAM" -> CMD: free -h
+- "list files here" -> CMD: ls -la
 - "system uptime" -> CMD: uptime
-- "what OS am I running" -> CMD: uname -a
-- "check network connectivity" -> CMD: ping -c 3 8.8.8.8
 
-If the question does NOT need a system command (greetings, general knowledge, coding help, etc), just respond normally with text.
+Examples of when NOT to use CMD (Respond with TEXT only):
+- "what is docker?" -> "Docker is a platform for developing, shipping, and running applications in containers..."
+- "how to write a loop in Go?" -> "In Go, you use the for keyword..."
+- "who is the president?" -> [Provide factual answer]
 
-IMPORTANT: When using CMD, output ONLY the CMD line and nothing else. No explanation before or after.`, runtime.GOOS, ipCommand())
+IMPORTANT: If using CMD, respond with ONLY the CMD line. If not using CMD, respond with a helpful conversational message.`, runtime.GOOS, ipCommand())
 
 // summarizePrompt — used after command execution to produce a clean summary.
 const summarizePrompt = `The user asked: "%s"
