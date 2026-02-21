@@ -1,6 +1,3 @@
-# Copyright (c) 2026 RuturajS (ROne). All rights reserved.
-# This code belongs to the author. No modification or republication 
-# is allowed without explicit permission.
 # ROne
 
 Cross-platform, single-binary CLI daemon for multi-channel messaging with local LLM inference and task scheduling.
