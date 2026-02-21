@@ -18,22 +18,7 @@ ROne is a lightweight background process that connects to Telegram, Discord, and
 - **Environment variable overrides** — All sensitive config fields (tokens, chat IDs) can be set via env vars
 - **Cross-platform** — Builds for Linux and Windows from a single codebase (pure Go SQLite, no CGO required)
 
-## Project Structure
 
-```
-rone/
-  cmd/              CLI commands (start, stop, status, reload-config, test-ollama, migrate)
-  config/           YAML config loader with env override and validation
-  adapters/         Platform adapters (Telegram, Discord, Slack) implementing a common interface
-  daemon/           Process orchestrator, message handler, signal handling
-  database/         SQLite in-memory DB, schema DDL, prepared statement wrappers
-  scheduler/        Ticker-based task polling loop, minimal cron parser
-  ollama/           HTTP client for Ollama API with retry logic and fail-safe fallback
-  internal/logger/  Structured logging via slog
-  main.go           Entry point
-  config.example.yaml
-  Makefile
-```
 
 ## Prerequisites
 
@@ -67,7 +52,7 @@ go run . start --foreground --log-level debug
 
 ```bash
 export RONE_TELEGRAM_TOKEN="your-bot-token"
-export RONE_TELEGRAM_CHAT_ID="615992393"
+export RONE_TELEGRAM_CHAT_ID="123456789"
 export RONE_OLLAMA_MODEL="qwen3b-smallctx:latest"
 go run . start --foreground
 ```

@@ -8,6 +8,7 @@ type Config struct {
 	Discord   DiscordConfig   `yaml:"discord"`
 	Slack     SlackConfig     `yaml:"slack"`
 	Ollama    OllamaConfig    `yaml:"ollama"`
+	Tools     ToolsConfig     `yaml:"tools"`
 	Scheduler SchedulerConfig `yaml:"scheduler"`
 	RateLimit RateLimitConfig `yaml:"rate_limit"`
 	Log       LogConfig       `yaml:"log"`
@@ -17,7 +18,7 @@ type TelegramConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Token   string `yaml:"token"`
 	ChatID  int64  `yaml:"chat_id"`
-	Debug   bool   `yaml:"debug"` // log full incoming messages
+	Debug   bool   `yaml:"debug"`
 }
 
 type DiscordConfig struct {
@@ -36,6 +37,11 @@ type OllamaConfig struct {
 	Model      string        `yaml:"model"`
 	Timeout    time.Duration `yaml:"timeout"`
 	MaxRetries int           `yaml:"max_retries"`
+}
+
+type ToolsConfig struct {
+	Enabled bool          `yaml:"enabled"`
+	Timeout time.Duration `yaml:"timeout"`
 }
 
 type SchedulerConfig struct {

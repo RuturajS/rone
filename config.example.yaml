@@ -25,11 +25,16 @@ ollama:
   timeout: "30s"
   max_retries: 3
 
+# Tool execution — allows LLM to run system commands
+tools:
+  enabled: true                 # set to false to disable command execution
+  timeout: "30s"                # max time per command
+
 scheduler:
   interval: "10s"               # RONE_SCHEDULER_INTERVAL
 
 rate_limit:
-  messages_per_minute: 20       # RONE_RATE_LIMIT
+  messages_per_minute: 20
 
 log:
   level: "info"                 # RONE_LOG_LEVEL  (debug | info | warn | error)

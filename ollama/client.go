@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -16,12 +17,11 @@ import (
 var ErrOllamaUnavailable = errors.New("ollama: service unavailable after retries")
 
 // classifyPrompt — very strict: only explicit reminders/scheduled actions are "task".
-// Everything else defaults to conversation.
 const classifyPrompt = `Classify this message as "task" or "conversation".
 
 TASK means the user EXPLICITLY asks to:
 - Set a reminder ("remind me to X at Y")
-- Schedule something ("schedule X for tomorrow")  
+- Schedule something ("schedule X for tomorrow")
 - Create a to-do ("add task: X")
 - Set a timer ("in 30 minutes do X")
 
@@ -37,6 +37,39 @@ Default to "conversation" if unsure.
 Reply with ONE word only: conversation or task
 
 Message: %s`
+
+// toolPrompt — system prompt for tool-aware generation.
+// The LLM can return CMD: <command> to execute a system command,
+// or just respond with text if no command is needed.
+var toolPrompt = fmt.Sprintf(`You are ROne, a helpful assistant running on a %s system.
+You have access to the local terminal. If the user's question can be answered better by running a system command, respond with ONLY this format on the FIRST line:
+
+CMD: <shell command here>
+
+Examples of when to use CMD:
+- "what's my disk space" -> CMD: df -h
+- "show running processes" -> CMD: ps aux
+- "what's my IP" -> CMD: %s
+- "list files in home" -> CMD: ls -la ~
+- "how much RAM" -> CMD: free -h
+- "system uptime" -> CMD: uptime
+- "what OS am I running" -> CMD: uname -a
+- "check network connectivity" -> CMD: ping -c 3 8.8.8.8
+
+If the question does NOT need a system command (greetings, general knowledge, coding help, etc), just respond normally with text.
+
+IMPORTANT: When using CMD, output ONLY the CMD line and nothing else. No explanation before or after.`, runtime.GOOS, ipCommand())
+
+// summarizePrompt — used after command execution to produce a clean summary.
+const summarizePrompt = `The user asked: "%s"
+
+I ran this command on the system:
+$ %s
+
+Output:
+%s
+
+Provide a clear, concise summary of the result. Be direct and factual. If there's an error, explain what it means.`
 
 const failSafeMessage = "ROne: AI is temporarily unavailable. Your message has been logged."
 
@@ -85,7 +118,6 @@ func (c *Client) Ping(ctx context.Context) (*TagsResponse, error) {
 }
 
 // Classify determines if a message is "conversation" or "task".
-// Only returns "task" for very explicit scheduling/reminder requests.
 func (c *Client) Classify(ctx context.Context, content string) (string, error) {
 	prompt := fmt.Sprintf(classifyPrompt, content)
 	resp, err := c.generate(ctx, prompt)
@@ -93,21 +125,45 @@ func (c *Client) Classify(ctx context.Context, content string) (string, error) {
 		return "", err
 	}
 
-	// Extract just the classification word from the response
 	result := strings.TrimSpace(strings.ToLower(resp))
-
-	// Some models return extra text — extract the keyword
 	if strings.Contains(result, "task") && !strings.Contains(result, "conversation") {
 		return "task", nil
 	}
-	// Default to conversation for anything ambiguous
 	slog.Debug("classify result", "raw", resp, "parsed", "conversation")
 	return "conversation", nil
 }
 
-// Generate produces a conversational response.
+// GenerateWithTools sends the user message with the tool-aware system prompt.
+// Returns the raw LLM response which may contain "CMD: <command>" on the first line.
+func (c *Client) GenerateWithTools(ctx context.Context, userMessage string) (string, error) {
+	prompt := toolPrompt + "\n\nUser: " + userMessage
+	return c.generate(ctx, prompt)
+}
+
+// Summarize sends the command output back to the LLM for a clean human-readable summary.
+func (c *Client) Summarize(ctx context.Context, userQuestion, command, output string) (string, error) {
+	prompt := fmt.Sprintf(summarizePrompt, userQuestion, command, output)
+	return c.generate(ctx, prompt)
+}
+
+// Generate produces a plain conversational response (no tool awareness).
 func (c *Client) Generate(ctx context.Context, content string) (string, error) {
 	return c.generate(ctx, content)
+}
+
+// ParseToolResponse checks if the LLM response contains a CMD: directive.
+// Returns (command, true) if a command was found, ("", false) otherwise.
+func ParseToolResponse(response string) (string, bool) {
+	lines := strings.SplitN(response, "\n", 2)
+	firstLine := strings.TrimSpace(lines[0])
+
+	if strings.HasPrefix(strings.ToUpper(firstLine), "CMD:") {
+		cmd := strings.TrimSpace(firstLine[4:])
+		if cmd != "" {
+			return cmd, true
+		}
+	}
+	return "", false
 }
 
 // FailSafeMessage returns the fallback message when Ollama is unavailable.
@@ -180,4 +236,12 @@ func (c *Client) generate(parentCtx context.Context, prompt string) (string, err
 	}
 
 	return "", ErrOllamaUnavailable
+}
+
+// ipCommand returns the platform-appropriate IP command.
+func ipCommand() string {
+	if runtime.GOOS == "windows" {
+		return "ipconfig"
+	}
+	return "ip addr"
 }

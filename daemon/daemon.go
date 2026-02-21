@@ -10,11 +10,12 @@ import (
 	"github.com/RuturajS/rone/adapters"
 	"github.com/RuturajS/rone/config"
 	"github.com/RuturajS/rone/database"
+	"github.com/RuturajS/rone/executor"
 	"github.com/RuturajS/rone/ollama"
 	"github.com/RuturajS/rone/scheduler"
 )
 
-// Daemon is the main process orchestrator — wires all components together.
+// Daemon is the main process orchestrator.
 type Daemon struct {
 	cfg       *config.Config
 	db        *database.DB
@@ -109,6 +110,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		"ollama_endpoint", d.cfg.Ollama.Endpoint,
 		"scheduler_interval", d.cfg.Scheduler.Interval,
 		"log_level", d.cfg.Log.Level,
+		"tools_enabled", d.cfg.Tools.Enabled,
 	)
 
 	handler := d.makeHandler(ctx)
@@ -136,7 +138,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 
 	slog.Info("daemon running — press Ctrl+C to stop")
-
 	wg.Wait()
 
 	slog.Info("daemon shutting down")
@@ -149,8 +150,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 }
 
 // makeHandler returns the message handler callback.
-// Almost all messages are treated as conversation (direct LLM chat).
-// Only explicit "remind me" / "schedule X" type messages create tasks.
+//
+// Flow:
+//  1. Classify intent (conversation vs task)
+//  2. For conversation:
+//     a. Ask LLM with tool-aware prompt
+//     b. If LLM returns CMD: <command> — execute it, summarize output, reply
+//     c. If LLM returns plain text — reply directly
+//  3. For task: create once, acknowledge, exit (scheduler handles execution)
 func (d *Daemon) makeHandler(ctx context.Context) adapters.MessageHandler {
 	return func(msg adapters.IncomingMessage) {
 		slog.Info(">> message received",
@@ -161,7 +168,6 @@ func (d *Daemon) makeHandler(ctx context.Context) adapters.MessageHandler {
 		)
 
 		if msg.Content == "" {
-			slog.Debug("empty message, skipping")
 			return
 		}
 
@@ -171,26 +177,23 @@ func (d *Daemon) makeHandler(ctx context.Context) adapters.MessageHandler {
 			return
 		}
 
-		// Send typing indicator immediately
 		adapter.SendTyping(msg.ChannelID)
 
-		// Register channel
 		channelDBID, err := d.db.UpsertChannel(msg.Platform, msg.ChannelID, "")
 		if err != nil {
 			slog.Error("upsert channel failed", "error", err)
 			return
 		}
 
-		// Classify intent — biased heavily toward conversation
-		slog.Debug("classifying message via ollama...")
+		// Classify
 		intent, err := d.ollama.Classify(ctx, msg.Content)
 		if err != nil {
 			slog.Warn("classify failed, defaulting to conversation", "error", err)
 			intent = "conversation"
 		}
-		slog.Info("intent classified", "intent", intent, "content", msg.Content)
+		slog.Info("intent classified", "intent", intent)
 
-		// Store message in DB
+		// Store message
 		msgID, err := d.db.InsertMessage(channelDBID, msg.Sender, msg.Content, intent)
 		if err != nil {
 			slog.Error("store message failed", "error", err)
@@ -199,8 +202,6 @@ func (d *Daemon) makeHandler(ctx context.Context) adapters.MessageHandler {
 
 		switch intent {
 		case "task":
-			// Only for explicit scheduling requests.
-			// Create the task ONCE and acknowledge. Scheduler picks it up later.
 			now := time.Now().UTC().Format(time.RFC3339)
 			taskID, err := d.db.InsertTask(&msgID, channelDBID, msg.Content, "once", nil, now, nil)
 			if err != nil {
@@ -210,30 +211,101 @@ func (d *Daemon) makeHandler(ctx context.Context) adapters.MessageHandler {
 			slog.Info("task created", "task_id", taskID)
 
 			ack := fmt.Sprintf("Task #%d recorded. Will be executed shortly.", taskID)
-			if err := adapter.Send(msg.ChannelID, ack); err != nil {
-				slog.Error("send task ack failed", "error", err)
-			}
+			_ = adapter.Send(msg.ChannelID, ack)
 			_ = d.db.MarkResponded(msgID)
-			// DONE — no further processing. Scheduler handles execution.
 
 		default:
-			// Conversation — send to Ollama and reply directly.
-			adapter.SendTyping(msg.ChannelID)
-
-			slog.Info("generating response via ollama...", "model", d.cfg.Ollama.Model)
-			response, err := d.ollama.Generate(ctx, msg.Content)
-			if err != nil {
-				slog.Error("generate response failed", "error", err)
-				response = ollama.FailSafeMessage()
-			}
-			slog.Info("response generated", "length", len(response))
-
-			if err := adapter.Send(msg.ChannelID, response); err != nil {
-				slog.Error("send response failed", "error", err)
-			} else {
-				slog.Info("<< reply sent", "platform", msg.Platform, "channel", msg.ChannelID)
-			}
-			_ = d.db.MarkResponded(msgID)
+			// Conversation path — with tool support
+			d.handleConversation(ctx, adapter, msg, msgID)
 		}
 	}
+}
+
+// handleConversation processes a conversational message.
+// If tools are enabled, the LLM can request command execution via CMD: directive.
+func (d *Daemon) handleConversation(ctx context.Context, adapter adapters.Adapter, msg adapters.IncomingMessage, msgID int64) {
+	adapter.SendTyping(msg.ChannelID)
+
+	var response string
+	var err error
+
+	if d.cfg.Tools.Enabled {
+		// Tool-aware generation: LLM may return CMD: <command>
+		slog.Info("generating response (tools enabled)...", "model", d.cfg.Ollama.Model)
+		response, err = d.ollama.GenerateWithTools(ctx, msg.Content)
+	} else {
+		// Plain generation: no command execution
+		slog.Info("generating response (tools disabled)...", "model", d.cfg.Ollama.Model)
+		response, err = d.ollama.Generate(ctx, msg.Content)
+	}
+
+	if err != nil {
+		slog.Error("generate response failed", "error", err)
+		_ = adapter.Send(msg.ChannelID, ollama.FailSafeMessage())
+		_ = d.db.MarkResponded(msgID)
+		return
+	}
+
+	// Check if the LLM wants to execute a command
+	if d.cfg.Tools.Enabled {
+		if cmd, isCmd := ollama.ParseToolResponse(response); isCmd {
+			d.executeAndReply(ctx, adapter, msg, msgID, cmd)
+			return
+		}
+	}
+
+	// No command — send the LLM text response directly
+	slog.Info("response generated (text)", "length", len(response))
+	if err := adapter.Send(msg.ChannelID, response); err != nil {
+		slog.Error("send response failed", "error", err)
+	} else {
+		slog.Info("<< reply sent", "platform", msg.Platform)
+	}
+	_ = d.db.MarkResponded(msgID)
+}
+
+// executeAndReply runs a command, sends output to LLM for summary, replies to user.
+func (d *Daemon) executeAndReply(ctx context.Context, adapter adapters.Adapter, msg adapters.IncomingMessage, msgID int64, command string) {
+	slog.Info("tool: executing command", "command", command)
+
+	// Notify user that a command is being executed
+	adapter.SendTyping(msg.ChannelID)
+
+	// Execute the command
+	timeout := d.cfg.Tools.Timeout
+	if timeout == 0 {
+		timeout = executor.DefaultTimeout
+	}
+	result := executor.Run(ctx, command, timeout)
+
+	slog.Info("tool: command completed",
+		"command", command,
+		"exit_code", result.ExitCode,
+		"output_bytes", len(result.Output),
+		"duration", result.Duration,
+	)
+
+	// Send the output to LLM for a clean summary
+	adapter.SendTyping(msg.ChannelID)
+
+	cmdOutput := result.Output
+	if result.Error != "" && result.ExitCode != 0 {
+		cmdOutput += "\nError: " + result.Error
+	}
+
+	summary, err := d.ollama.Summarize(ctx, msg.Content, command, cmdOutput)
+	if err != nil {
+		slog.Warn("tool: summarize failed, sending raw output", "error", err)
+		// Fallback: send raw command output
+		summary = executor.FormatResult(result)
+	}
+
+	slog.Info("tool: summary generated", "length", len(summary))
+
+	if err := adapter.Send(msg.ChannelID, summary); err != nil {
+		slog.Error("send tool response failed", "error", err)
+	} else {
+		slog.Info("<< tool reply sent", "platform", msg.Platform, "command", command)
+	}
+	_ = d.db.MarkResponded(msgID)
 }
