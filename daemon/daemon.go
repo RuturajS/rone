@@ -103,6 +103,8 @@ func New(cfg *config.Config) (*Daemon, error) {
 func (d *Daemon) Run(ctx context.Context) error {
 	slog.Info("==========================================")
 	slog.Info("  ROne daemon starting")
+	slog.Info("  Author: Ruturaj Sharbidre")
+	slog.Info("  GitHub: github.com/RuturajS")
 	slog.Info("==========================================")
 	slog.Info("config summary",
 		"adapters", len(d.adapters),

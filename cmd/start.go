@@ -45,6 +45,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	slog.Info("==========================================")
 	slog.Info("  ROne v" + appVersion)
+	slog.Info("  Author: Ruturaj Sharbidre")
+	slog.Info("  GitHub: github.com/RuturajS")
 	slog.Info("==========================================")
 	slog.Info("config loaded",
 		"path", cfgPath,
