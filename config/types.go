@@ -40,8 +40,9 @@ type OllamaConfig struct {
 }
 
 type ToolsConfig struct {
-	Enabled bool          `yaml:"enabled"`
-	Timeout time.Duration `yaml:"timeout"`
+	Enabled         bool          `yaml:"enabled"`          // allow LLM to execute system commands
+	RequireApproval bool          `yaml:"require_approval"` // ask user for permission before running CMD
+	Timeout         time.Duration `yaml:"timeout"`          // max execution time per command
 }
 
 type SchedulerConfig struct {

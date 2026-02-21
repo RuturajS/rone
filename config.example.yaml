@@ -28,6 +28,7 @@ ollama:
 # Tool execution — allows LLM to run system commands
 tools:
   enabled: true                 # set to false to disable command execution
+  require_approval: true        # RONE_TOOLS_REQUIRE_APPROVAL (ask user before running CMD)
   timeout: "30s"                # max time per command
 
 scheduler:
