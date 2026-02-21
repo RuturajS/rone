@@ -30,6 +30,7 @@ services:
       
       # --- Tool Execution ---
       - RONE_TOOLS_ENABLED=true
+      - RONE_TOOLS_REQUIRE_APPROVAL=true
       - RONE_TOOLS_TIMEOUT=30s
       
       # --- Scheduler Settings ---

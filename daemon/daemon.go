@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,6 +23,11 @@ type Daemon struct {
 	ollama    *ollama.Client
 	adapters  map[string]adapters.Adapter
 	scheduler *scheduler.Scheduler
+
+	// State for pending commands awaiting user approval
+	// Key: platform:channelID, Value: command to execute
+	pendingCmds map[string]string
+	mu          sync.RWMutex
 }
 
 // New creates a new Daemon from the given config.
@@ -91,11 +97,12 @@ func New(cfg *config.Config) (*Daemon, error) {
 	sched := scheduler.New(cfg.Scheduler.Interval, db, adapterMap, ollamaClient)
 
 	return &Daemon{
-		cfg:       cfg,
-		db:        db,
-		ollama:    ollamaClient,
-		adapters:  adapterMap,
-		scheduler: sched,
+		cfg:         cfg,
+		db:          db,
+		ollama:      ollamaClient,
+		adapters:    adapterMap,
+		scheduler:   sched,
+		pendingCmds: make(map[string]string),
 	}, nil
 }
 
@@ -113,6 +120,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		"scheduler_interval", d.cfg.Scheduler.Interval,
 		"log_level", d.cfg.Log.Level,
 		"tools_enabled", d.cfg.Tools.Enabled,
+		"require_approval", d.cfg.Tools.RequireApproval,
 	)
 
 	handler := d.makeHandler(ctx)
@@ -152,14 +160,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 }
 
 // makeHandler returns the message handler callback.
-//
-// Flow:
-//  1. Classify intent (conversation vs task)
-//  2. For conversation:
-//     a. Ask LLM with tool-aware prompt
-//     b. If LLM returns CMD: <command> — execute it, summarize output, reply
-//     c. If LLM returns plain text — reply directly
-//  3. For task: create once, acknowledge, exit (scheduler handles execution)
 func (d *Daemon) makeHandler(ctx context.Context) adapters.MessageHandler {
 	return func(msg adapters.IncomingMessage) {
 		slog.Info(">> message received",
@@ -176,6 +176,16 @@ func (d *Daemon) makeHandler(ctx context.Context) adapters.MessageHandler {
 		adapter, ok := d.adapters[msg.Platform]
 		if !ok {
 			slog.Error("no adapter for platform", "platform", msg.Platform)
+			return
+		}
+
+		// Handle internal control commands (e.g., "rone help", "rone toggle approval")
+		if d.handleInternalCommand(adapter, msg) {
+			return
+		}
+
+		// Handle pending approval if exists
+		if d.handlePendingApproval(ctx, adapter, msg) {
 			return
 		}
 
@@ -223,8 +233,114 @@ func (d *Daemon) makeHandler(ctx context.Context) adapters.MessageHandler {
 	}
 }
 
+// handleInternalCommand processes commands specifically for controlling ROne.
+func (d *Daemon) handleInternalCommand(adapter adapters.Adapter, msg adapters.IncomingMessage) bool {
+	content := strings.ToLower(strings.TrimSpace(msg.Content))
+	
+	// Trigger on "rone" or "/rone"
+	if !strings.HasPrefix(content, "rone") && !strings.HasPrefix(content, "/rone") {
+		return false
+	}
+
+	parts := strings.Fields(content)
+	if len(parts) == 1 {
+		// Just "rone" — show main menu
+		help := "🤖 *ROne Control Center*\n\n" +
+			"Available options:\n" +
+			"• `rone status` - Show system & bot status\n" +
+			"• `rone approval on` - Always ask before running commands\n" +
+			"• `rone approval off` - Run commands automatically (Warning!)\n" +
+			"• `rone tools on/off` - Toggle terminal tools feature\n" +
+			"• `rone model` - Show currently used LLM model\n\n" +
+			"*Author:* Ruturaj Sharbidre"
+		_ = adapter.Send(msg.ChannelID, help)
+		return true
+	}
+
+	cmd := parts[1]
+	switch cmd {
+	case "status":
+		status := fmt.Sprintf("📊 *Status*\n\n• *Model:* %s\n• *Approval Mode:* %v\n• *Tools Enabled:* %v\n• *Adapters:* %d active", 
+			d.cfg.Ollama.Model, d.cfg.Tools.RequireApproval, d.cfg.Tools.Enabled, len(d.adapters))
+		_ = adapter.Send(msg.ChannelID, status)
+		
+	case "approval":
+		if len(parts) < 3 {
+			_ = adapter.Send(msg.ChannelID, "❓ Specify `on` or `off`. Example: `rone approval off`")
+			return true
+		}
+		mode := parts[2]
+		if mode == "on" {
+			d.cfg.Tools.RequireApproval = true
+			_ = adapter.Send(msg.ChannelID, "✅ *Approval Mode:* ON. I will now ask for permission before running terminal commands.")
+		} else if mode == "off" {
+			d.cfg.Tools.RequireApproval = false
+			_ = adapter.Send(msg.ChannelID, "⚠️ *Approval Mode:* OFF. I will now execute terminal commands automatically.")
+		} else {
+			_ = adapter.Send(msg.ChannelID, "❓ Unknown mode. Use `on` or `off`.")
+		}
+
+	case "tools":
+		if len(parts) < 3 {
+			_ = adapter.Send(msg.ChannelID, "❓ Specify `on` or `off`. Example: `rone tools off`")
+			return true
+		}
+		mode := parts[2]
+		if mode == "on" {
+			d.cfg.Tools.Enabled = true
+			_ = adapter.Send(msg.ChannelID, "✅ *Tools:* Enabled. I can now run terminal commands.")
+		} else if mode == "off" {
+			d.cfg.Tools.Enabled = false
+			_ = adapter.Send(msg.ChannelID, "🚫 *Tools:* Disabled. I will only engage in conversation.")
+		}
+
+	case "model":
+		_ = adapter.Send(msg.ChannelID, "🧠 *Current LLM:* `"+d.cfg.Ollama.Model+"`")
+
+	default:
+		_ = adapter.Send(msg.ChannelID, "❓ Unknown command. Type `rone` for help.")
+	}
+
+	return true
+}
+
+// handlePendingApproval checks if a message is an approval for a pending command.
+func (d *Daemon) handlePendingApproval(ctx context.Context, adapter adapters.Adapter, msg adapters.IncomingMessage) bool {
+	key := fmt.Sprintf("%s:%s", msg.Platform, msg.ChannelID)
+
+	d.mu.RLock()
+	cmd, exists := d.pendingCmds[key]
+	d.mu.RUnlock()
+
+	if !exists {
+		return false
+	}
+
+	content := strings.ToLower(strings.TrimSpace(msg.Content))
+	if content == "yes" || content == "y" || strings.Contains(content, "proceed") {
+		// Approved! Clear the state and execute.
+		d.mu.Lock()
+		delete(d.pendingCmds, key)
+		d.mu.Unlock()
+
+		slog.Info("command approved by user", "platform", msg.Platform, "channel", msg.ChannelID, "cmd", cmd)
+		d.executeAndReply(ctx, adapter, msg, 0, cmd)
+		return true
+	} else if content == "no" || content == "n" || strings.Contains(content, "cancel") {
+		// Cancelled.
+		d.mu.Lock()
+		delete(d.pendingCmds, key)
+		d.mu.Unlock()
+
+		slog.Info("command cancelled by user", "platform", msg.Platform, "channel", msg.ChannelID)
+		_ = adapter.Send(msg.ChannelID, "❌ Command execution cancelled.")
+		return true
+	}
+
+	return false
+}
+
 // handleConversation processes a conversational message.
-// If tools are enabled, the LLM can request command execution via CMD: directive.
 func (d *Daemon) handleConversation(ctx context.Context, adapter adapters.Adapter, msg adapters.IncomingMessage, msgID int64) {
 	adapter.SendTyping(msg.ChannelID)
 
@@ -232,11 +348,9 @@ func (d *Daemon) handleConversation(ctx context.Context, adapter adapters.Adapte
 	var err error
 
 	if d.cfg.Tools.Enabled {
-		// Tool-aware generation: LLM may return CMD: <command>
 		slog.Info("generating response (tools enabled)...", "model", d.cfg.Ollama.Model)
 		response, err = d.ollama.GenerateWithTools(ctx, msg.Content)
 	} else {
-		// Plain generation: no command execution
 		slog.Info("generating response (tools disabled)...", "model", d.cfg.Ollama.Model)
 		response, err = d.ollama.Generate(ctx, msg.Content)
 	}
@@ -251,8 +365,29 @@ func (d *Daemon) handleConversation(ctx context.Context, adapter adapters.Adapte
 	// Check if the LLM wants to execute a command
 	if d.cfg.Tools.Enabled {
 		if cmd, isCmd := ollama.ParseToolResponse(response); isCmd {
-			d.executeAndReply(ctx, adapter, msg, msgID, cmd)
-			return
+			if d.cfg.Tools.RequireApproval {
+				// Store in pending state and ask user
+				key := fmt.Sprintf("%s:%s", msg.Platform, msg.ChannelID)
+				d.mu.Lock()
+				d.pendingCmds[key] = cmd
+				d.mu.Unlock()
+
+				slog.Info("tool: pending approval required", "command", cmd)
+				
+				// Show the user the plan
+				planMsg := fmt.Sprintf("⚠️ *Plan:* I intend to execute the following command on this system:\n\n`%s`\n\nReply with *'yes'* to proceed or *'no'* to cancel.", cmd)
+				if err := adapter.Send(msg.ChannelID, planMsg); err != nil {
+					slog.Error("send approval request failed", "error", err)
+				}
+				_ = d.db.MarkResponded(msgID)
+				return
+			} else {
+				// Show plan but execute immediately
+				planMsg := fmt.Sprintf("🛠 *Executing:* `%s`...", cmd)
+				_ = adapter.Send(msg.ChannelID, planMsg)
+				d.executeAndReply(ctx, adapter, msg, msgID, cmd)
+				return
+			}
 		}
 	}
 
@@ -270,10 +405,8 @@ func (d *Daemon) handleConversation(ctx context.Context, adapter adapters.Adapte
 func (d *Daemon) executeAndReply(ctx context.Context, adapter adapters.Adapter, msg adapters.IncomingMessage, msgID int64, command string) {
 	slog.Info("tool: executing command", "command", command)
 
-	// Notify user that a command is being executed
 	adapter.SendTyping(msg.ChannelID)
 
-	// Execute the command
 	timeout := d.cfg.Tools.Timeout
 	if timeout == 0 {
 		timeout = executor.DefaultTimeout
@@ -287,7 +420,6 @@ func (d *Daemon) executeAndReply(ctx context.Context, adapter adapters.Adapter, 
 		"duration", result.Duration,
 	)
 
-	// Send the output to LLM for a clean summary
 	adapter.SendTyping(msg.ChannelID)
 
 	cmdOutput := result.Output
@@ -298,7 +430,6 @@ func (d *Daemon) executeAndReply(ctx context.Context, adapter adapters.Adapter, 
 	summary, err := d.ollama.Summarize(ctx, msg.Content, command, cmdOutput)
 	if err != nil {
 		slog.Warn("tool: summarize failed, sending raw output", "error", err)
-		// Fallback: send raw command output
 		summary = executor.FormatResult(result)
 	}
 
@@ -309,5 +440,7 @@ func (d *Daemon) executeAndReply(ctx context.Context, adapter adapters.Adapter, 
 	} else {
 		slog.Info("<< tool reply sent", "platform", msg.Platform, "command", command)
 	}
-	_ = d.db.MarkResponded(msgID)
+	if msgID != 0 {
+		_ = d.db.MarkResponded(msgID)
+	}
 }

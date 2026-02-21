@@ -31,6 +31,11 @@ func DefaultConfig() *Config {
 			Level:  "info",
 			Format: "text",
 		},
+		Tools: ToolsConfig{
+			Enabled:         false,
+			RequireApproval: true, // Safety first
+			Timeout:         30 * time.Second,
+		},
 	}
 }
 
@@ -92,6 +97,17 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("RONE_RATE_LIMIT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.RateLimit.MessagesPerMinute = n
+		}
+	}
+	if v := os.Getenv("RONE_TOOLS_ENABLED"); v != "" {
+		cfg.Tools.Enabled = v == "true"
+	}
+	if v := os.Getenv("RONE_TOOLS_REQUIRE_APPROVAL"); v != "" {
+		cfg.Tools.RequireApproval = v == "true"
+	}
+	if v := os.Getenv("RONE_TOOLS_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.Tools.Timeout = d
 		}
 	}
 }
