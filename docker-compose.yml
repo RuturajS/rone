@@ -6,14 +6,40 @@ services:
     container_name: rone
     restart: always
     volumes:
+      # Mount your local config.yaml. Make sure it exists!
       - ./config.yaml:/app/config.yaml:ro
     environment:
-      - RONE_LOG_LEVEL=info
-      # These can be set here or in a .env file
-      # - RONE_TELEGRAM_TOKEN=${RONE_TELEGRAM_TOKEN}
-      # - RONE_TELEGRAM_CHAT_ID=${RONE_TELEGRAM_CHAT_ID}
-      # - RONE_OLLAMA_ENDPOINT=http://host.docker.internal:11434
+      # --- General Settings ---
+      - RONE_LOG_LEVEL=info              # debug | info | warn | error
+      
+      # --- Telegram Settings ---
+      # - RONE_TELEGRAM_TOKEN=your_token
+      # - RONE_TELEGRAM_CHAT_ID=your_chat_id
+      
+      # --- Discord Settings ---
+      # - RONE_DISCORD_TOKEN=your_token
+      
+      # --- Slack Settings ---
+      # - RONE_SLACK_TOKEN=your_token
+      # - RONE_SLACK_APP_TOKEN=your_app_level_token
+      
+      # --- Ollama Settings ---
+      # host.docker.internal allows the container to reach Ollama on the host machine
+      - RONE_OLLAMA_ENDPOINT=http://host.docker.internal:11434
+      - RONE_OLLAMA_MODEL=qwen3b-smallctx:latest
+      
+      # --- Tool Execution ---
+      - RONE_TOOLS_ENABLED=true
+      - RONE_TOOLS_TIMEOUT=30s
+      
+      # --- Scheduler Settings ---
+      - RONE_SCHEDULER_INTERVAL=10s
+      
+      # --- Rate Limiting ---
+      - RONE_RATE_LIMIT=20
+
     extra_hosts:
+      # Required for Linux users to use host.docker.internal
       - "host.docker.internal:host-gateway"
     logging:
       driver: "json-file"
