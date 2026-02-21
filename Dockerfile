@@ -1,3 +1,6 @@
+# Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+# This code belongs to the author. No modification or republication 
+# is allowed without explicit permission.
 # Build Stage
 FROM golang:1.22-alpine AS builder
 
@@ -53,3 +56,4 @@ VOLUME ["/app/config.yaml"]
 
 # Define the entrypoint
 ENTRYPOINT ["/app/rone", "start", "--foreground"]
+

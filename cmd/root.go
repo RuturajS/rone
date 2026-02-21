@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+ * This code belongs to the author. No modification or republication 
+ * is allowed without explicit permission.
+ */
 package cmd
 
 import (
@@ -53,3 +58,4 @@ func exitOnError(msg string, err error) {
 	fmt.Fprintf(os.Stderr, "error: %s: %v\n", msg, err)
 	os.Exit(1)
 }
+

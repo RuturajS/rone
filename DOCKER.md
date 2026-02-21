@@ -1,3 +1,6 @@
+# Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+# This code belongs to the author. No modification or republication 
+# is allowed without explicit permission.
 # ROne Docker Documentation
 
 This guide covers building, running, and managing ROne using Docker and Docker Compose.
@@ -104,3 +107,4 @@ Ensure the container has the necessary tools installed. The default `Dockerfile`
 
 ### Permission Denied
 By default, the container runs as a non-root user (`rone`). If a command requires root privileges, it will fail unless you modify the `Dockerfile` to run as root or use `sudo` (not installed by default for security).
+

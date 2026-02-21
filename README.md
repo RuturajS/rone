@@ -1,3 +1,6 @@
+# Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+# This code belongs to the author. No modification or republication 
+# is allowed without explicit permission.
 # ROne
 
 Cross-platform, single-binary CLI daemon for multi-channel messaging with local LLM inference and task scheduling.
@@ -13,7 +16,6 @@ ROne is a lightweight background process that connects to Telegram, Discord, and
 - **In-memory SQLite** — Schema with `channels`, `messages`, `tasks`, `execution_logs` tables; prepared statements only, no ORM
 - **Task scheduler** — Configurable poll interval, supports one-time and recurring (5-field cron) execution
 - **Execution audit trail** — Every task run is logged with start/finish timestamps, status, result, and error
-- **Typing indicators** — Telegram and Discord send typing status while the LLM generates a response
 - **Graceful shutdown** — SIGINT/SIGTERM handling with context-based cancellation, adapter drain, and DB cleanup
 - **Environment variable overrides** — All sensitive config fields (tokens, chat IDs) can be set via env vars
 - **Cross-platform** — Builds for Linux and Windows from a single codebase (pure Go SQLite, no CGO required)
@@ -29,7 +31,7 @@ ROne is a lightweight background process that connects to Telegram, Discord, and
 ## Quick Start
 
 ```bash
-git clone <repo-url> && cd rone
+git clone https://github.com/RuturajS/rone.git && cd rone
 
 # Copy and configure
 cp config.example.yaml config.yaml
@@ -167,4 +169,7 @@ Uses `modernc.org/sqlite` (pure Go) — no CGO required, cross-compilation works
 
 ## License
 
-MIT
+Proprietary. Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+This software belongs to the author. No modification or republication is allowed without explicit permission.
+
+Authur: [Ruturaj Sharbidre](https://github.com/RuturajS)

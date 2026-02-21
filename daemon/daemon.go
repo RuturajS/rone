@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+ * This code belongs to the author. No modification or republication 
+ * is allowed without explicit permission.
+ */
 package daemon
 
 import (
@@ -70,6 +75,10 @@ func New(cfg *config.Config) (*Daemon, error) {
 		}
 	}
 
+	if len(cfg.Ollama.Models) > 0 {
+		slog.Info("ollama: models available in config", "models", cfg.Ollama.Models)
+	}
+
 	adapterMap := make(map[string]adapters.Adapter)
 	if cfg.Telegram.Enabled {
 		slog.Info("telegram: enabled", "chat_id", cfg.Telegram.ChatID, "debug", cfg.Telegram.Debug)
@@ -115,7 +124,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	slog.Info("==========================================")
 	slog.Info("config summary",
 		"adapters", len(d.adapters),
-		"ollama_model", d.cfg.Ollama.Model,
+		"ollama_model", d.ollama.GetModel(),
 		"ollama_endpoint", d.cfg.Ollama.Endpoint,
 		"scheduler_interval", d.cfg.Scheduler.Interval,
 		"log_level", d.cfg.Log.Level,
@@ -251,7 +260,7 @@ func (d *Daemon) handleInternalCommand(adapter adapters.Adapter, msg adapters.In
 			"• `rone approval on` - Always ask before running commands\n" +
 			"• `rone approval off` - Run commands automatically (Warning!)\n" +
 			"• `rone tools on/off` - Toggle terminal tools feature\n" +
-			"• `rone model` - Show currently used LLM model\n\n" +
+			"• `rone model` - List or switch LLM models\n\n" +
 			"*Author:* Ruturaj Sharbidre"
 		_ = adapter.Send(msg.ChannelID, help)
 		return true
@@ -260,8 +269,8 @@ func (d *Daemon) handleInternalCommand(adapter adapters.Adapter, msg adapters.In
 	cmd := parts[1]
 	switch cmd {
 	case "status":
-		status := fmt.Sprintf("📊 *Status*\n\n• *Model:* %s\n• *Approval Mode:* %v\n• *Tools Enabled:* %v\n• *Adapters:* %d active", 
-			d.cfg.Ollama.Model, d.cfg.Tools.RequireApproval, d.cfg.Tools.Enabled, len(d.adapters))
+		status := fmt.Sprintf("📊 *Status*\n\n• *Model:* %s\n• *Approval Mode:* %v\n• *Tools Enabled:* %v\n• *Adapters:* %d active\n• *Models in Config:* %d", 
+			d.ollama.GetModel(), d.cfg.Tools.RequireApproval, d.cfg.Tools.Enabled, len(d.adapters), len(d.cfg.Ollama.Models))
 		_ = adapter.Send(msg.ChannelID, status)
 		
 	case "approval":
@@ -295,7 +304,39 @@ func (d *Daemon) handleInternalCommand(adapter adapters.Adapter, msg adapters.In
 		}
 
 	case "model":
-		_ = adapter.Send(msg.ChannelID, "🧠 *Current LLM:* `"+d.cfg.Ollama.Model+"`")
+		if len(parts) < 3 {
+			// Show current model and listed models
+			msgText := fmt.Sprintf("🧠 *Current LLM:* `%s`", d.ollama.GetModel())
+			if len(d.cfg.Ollama.Models) > 0 {
+				msgText += "\n\n*Available from config:*\n"
+				for _, m := range d.cfg.Ollama.Models {
+					msgText += fmt.Sprintf("• `%s`\n", m)
+				}
+				msgText += "\nUse `rone model <name>` to switch."
+			} else {
+				msgText += "\n\n(No additional models listed in config.yaml)"
+			}
+			_ = adapter.Send(msg.ChannelID, msgText)
+			return true
+		}
+
+		newModel := parts[2]
+		found := false
+		for _, m := range d.cfg.Ollama.Models {
+			if m == newModel {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			_ = adapter.Send(msg.ChannelID, fmt.Sprintf("❌ Model `%s` is not in the allowed list in config.yaml", newModel))
+			return true
+		}
+
+		d.ollama.SetModel(newModel)
+		d.cfg.Ollama.Model = newModel // update config in memory
+		_ = adapter.Send(msg.ChannelID, fmt.Sprintf("✅ *Model switched to:* `%s`", newModel))
 
 	default:
 		_ = adapter.Send(msg.ChannelID, "❓ Unknown command. Type `rone` for help.")
@@ -348,10 +389,10 @@ func (d *Daemon) handleConversation(ctx context.Context, adapter adapters.Adapte
 	var err error
 
 	if d.cfg.Tools.Enabled {
-		slog.Info("generating response (tools enabled)...", "model", d.cfg.Ollama.Model)
+		slog.Info("generating response (tools enabled)...", "model", d.ollama.GetModel())
 		response, err = d.ollama.GenerateWithTools(ctx, msg.Content)
 	} else {
-		slog.Info("generating response (tools disabled)...", "model", d.cfg.Ollama.Model)
+		slog.Info("generating response (tools disabled)...", "model", d.ollama.GetModel())
 		response, err = d.ollama.Generate(ctx, msg.Content)
 	}
 
@@ -444,3 +485,4 @@ func (d *Daemon) executeAndReply(ctx context.Context, adapter adapters.Adapter, 
 		_ = d.db.MarkResponded(msgID)
 	}
 }
+

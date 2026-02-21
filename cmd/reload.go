@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+ * This code belongs to the author. No modification or republication 
+ * is allowed without explicit permission.
+ */
 package cmd
 
 import (
@@ -36,3 +41,4 @@ func runReload(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  windows: restart the daemon with 'rone stop && rone start'\n")
 	return nil
 }
+

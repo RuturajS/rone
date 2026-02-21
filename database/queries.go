@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+ * This code belongs to the author. No modification or republication 
+ * is allowed without explicit permission.
+ */
 package database
 
 import (
@@ -116,3 +121,4 @@ func (db *DB) InsertExecLog(taskID int64, startedAt time.Time, finishedAt *time.
 	)
 	return err
 }
+

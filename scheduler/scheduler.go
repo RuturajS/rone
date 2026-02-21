@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+ * This code belongs to the author. No modification or republication 
+ * is allowed without explicit permission.
+ */
 package scheduler
 
 import (
@@ -152,4 +157,5 @@ func (s *Scheduler) replyToChannel(task database.Task, result string) {
 func itoa(id int64) string {
 	return fmt.Sprintf("%d", id)
 }
+
 

@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+ * This code belongs to the author. No modification or republication 
+ * is allowed without explicit permission.
+ */
 package cmd
 
 import (
@@ -54,3 +59,4 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("rone: pid file found at %s (pid %d)\n", pidPath, pid)
 	return nil
 }
+
