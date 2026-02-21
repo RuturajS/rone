@@ -179,6 +179,11 @@ func (d *Daemon) makeHandler(ctx context.Context) adapters.MessageHandler {
 			return
 		}
 
+		// Handle internal control commands (e.g., "rone help", "rone toggle approval")
+		if d.handleInternalCommand(adapter, msg) {
+			return
+		}
+
 		// Handle pending approval if exists
 		if d.handlePendingApproval(ctx, adapter, msg) {
 			return
@@ -228,6 +233,77 @@ func (d *Daemon) makeHandler(ctx context.Context) adapters.MessageHandler {
 	}
 }
 
+// handleInternalCommand processes commands specifically for controlling ROne.
+func (d *Daemon) handleInternalCommand(adapter adapters.Adapter, msg adapters.IncomingMessage) bool {
+	content := strings.ToLower(strings.TrimSpace(msg.Content))
+	
+	// Trigger on "rone" or "/rone"
+	if !strings.HasPrefix(content, "rone") && !strings.HasPrefix(content, "/rone") {
+		return false
+	}
+
+	parts := strings.Fields(content)
+	if len(parts) == 1 {
+		// Just "rone" — show main menu
+		help := "🤖 *ROne Control Center*\n\n" +
+			"Available options:\n" +
+			"• `rone status` - Show system & bot status\n" +
+			"• `rone approval on` - Always ask before running commands\n" +
+			"• `rone approval off` - Run commands automatically (Warning!)\n" +
+			"• `rone tools on/off` - Toggle terminal tools feature\n" +
+			"• `rone model` - Show currently used LLM model\n\n" +
+			"*Author:* Ruturaj Sharbidre"
+		_ = adapter.Send(msg.ChannelID, help)
+		return true
+	}
+
+	cmd := parts[1]
+	switch cmd {
+	case "status":
+		status := fmt.Sprintf("📊 *Status*\n\n• *Model:* %s\n• *Approval Mode:* %v\n• *Tools Enabled:* %v\n• *Adapters:* %d active", 
+			d.cfg.Ollama.Model, d.cfg.Tools.RequireApproval, d.cfg.Tools.Enabled, len(d.adapters))
+		_ = adapter.Send(msg.ChannelID, status)
+		
+	case "approval":
+		if len(parts) < 3 {
+			_ = adapter.Send(msg.ChannelID, "❓ Specify `on` or `off`. Example: `rone approval off`")
+			return true
+		}
+		mode := parts[2]
+		if mode == "on" {
+			d.cfg.Tools.RequireApproval = true
+			_ = adapter.Send(msg.ChannelID, "✅ *Approval Mode:* ON. I will now ask for permission before running terminal commands.")
+		} else if mode == "off" {
+			d.cfg.Tools.RequireApproval = false
+			_ = adapter.Send(msg.ChannelID, "⚠️ *Approval Mode:* OFF. I will now execute terminal commands automatically.")
+		} else {
+			_ = adapter.Send(msg.ChannelID, "❓ Unknown mode. Use `on` or `off`.")
+		}
+
+	case "tools":
+		if len(parts) < 3 {
+			_ = adapter.Send(msg.ChannelID, "❓ Specify `on` or `off`. Example: `rone tools off`")
+			return true
+		}
+		mode := parts[2]
+		if mode == "on" {
+			d.cfg.Tools.Enabled = true
+			_ = adapter.Send(msg.ChannelID, "✅ *Tools:* Enabled. I can now run terminal commands.")
+		} else if mode == "off" {
+			d.cfg.Tools.Enabled = false
+			_ = adapter.Send(msg.ChannelID, "🚫 *Tools:* Disabled. I will only engage in conversation.")
+		}
+
+	case "model":
+		_ = adapter.Send(msg.ChannelID, "🧠 *Current LLM:* `"+d.cfg.Ollama.Model+"`")
+
+	default:
+		_ = adapter.Send(msg.ChannelID, "❓ Unknown command. Type `rone` for help.")
+	}
+
+	return true
+}
+
 // handlePendingApproval checks if a message is an approval for a pending command.
 func (d *Daemon) handlePendingApproval(ctx context.Context, adapter adapters.Adapter, msg adapters.IncomingMessage) bool {
 	key := fmt.Sprintf("%s:%s", msg.Platform, msg.ChannelID)
@@ -248,10 +324,6 @@ func (d *Daemon) handlePendingApproval(ctx context.Context, adapter adapters.Ada
 		d.mu.Unlock()
 
 		slog.Info("command approved by user", "platform", msg.Platform, "channel", msg.ChannelID, "cmd", cmd)
-		
-		// Map the message ID back if we had it? 
-		// For simplicity, we just execute and reply here.
-		// We'll use a dummy ID or just not link it back to the 'yes' message for now.
 		d.executeAndReply(ctx, adapter, msg, 0, cmd)
 		return true
 	} else if content == "no" || content == "n" || strings.Contains(content, "cancel") {
@@ -265,9 +337,6 @@ func (d *Daemon) handlePendingApproval(ctx context.Context, adapter adapters.Ada
 		return true
 	}
 
-	// It wasn't a clear yes/no, so we stay in pending state and return false (process normally)
-	// Actually, we should probably ignore other messages while waiting? 
-	// Let's settle for allowing the user to ignore it by talking about something else.
 	return false
 }
 
