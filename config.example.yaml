@@ -1,0 +1,36 @@
+# config.example.yaml — ROne configuration template
+# Copy this file to config.yaml and fill in your tokens.
+#   cp config.example.yaml config.yaml
+#
+# All token fields support environment variable overrides (see below).
+
+telegram:
+  enabled: false
+  token: ""                     # RONE_TELEGRAM_TOKEN
+  chat_id: 0                    # RONE_TELEGRAM_CHAT_ID (get from @userinfobot)
+  debug: false                  # Log full incoming messages
+
+discord:
+  enabled: false
+  token: ""                     # RONE_DISCORD_TOKEN
+
+slack:
+  enabled: false
+  token: ""                     # RONE_SLACK_TOKEN
+  app_token: ""                 # RONE_SLACK_APP_TOKEN
+
+ollama:
+  endpoint: "http://localhost:11434"
+  model: "llama3.2"             # RONE_OLLAMA_MODEL
+  timeout: "30s"
+  max_retries: 3
+
+scheduler:
+  interval: "10s"               # RONE_SCHEDULER_INTERVAL
+
+rate_limit:
+  messages_per_minute: 20       # RONE_RATE_LIMIT
+
+log:
+  level: "info"                 # RONE_LOG_LEVEL  (debug | info | warn | error)
+  format: "text"                # text | json

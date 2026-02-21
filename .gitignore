@@ -1,0 +1,29 @@
+# Binaries
+bin/
+rone
+rone.exe
+*.exe
+
+# Go
+*.test
+*.out
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config with secrets (never commit real tokens)
+config.yaml
+
+# PID file
+rone.pid
+
+# Internal design docs
+ARCHITECTURE.md
