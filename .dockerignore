@@ -1,0 +1,16 @@
+# Docker ignore list
+.git
+.github
+.agent
+.vscode
+.idea
+bin/
+*.exe
+rone
+rone.pid
+config.yaml
+Dockerfile
+.dockerignore
+ARCHITECTURE.md
+README.md
+vendor/

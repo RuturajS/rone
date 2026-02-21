@@ -129,6 +129,35 @@ Four tables, all in-memory (`file:memdb1?mode=memory&cache=shared`):
 
 Indexes: `idx_tasks_scheduled_time`, `idx_tasks_status`
 
+## Docker
+
+You can run ROne as a lightweight container.
+
+### Build the image
+```bash
+docker build -t rone:latest .
+```
+
+### Run the container
+Mount your `config.yaml` as a volume:
+```bash
+docker run -d \
+  --name rone \
+  -v $(pwd)/config.yaml:/app/config.yaml \
+  rone:latest
+```
+
+Or use environment variables:
+```bash
+docker run -d \
+  --name rone \
+  -e RONE_TELEGRAM_TOKEN="your-token" \
+  -e RONE_TELEGRAM_CHAT_ID="your-id" \
+  -e RONE_OLLAMA_ENDPOINT="http://host.docker.internal:11434" \
+  rone:latest
+```
+*Note: Use `host.docker.internal` on Windows/Mac to reach Ollama running on your host.*
+
 ## Building
 
 ```bash
