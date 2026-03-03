@@ -1,6 +1,3 @@
-# Copyright (c) 2026 RuturajS (ROne). All rights reserved.
-# This code belongs to the author. No modification or republication 
-# is allowed without explicit permission.
 # ROne
 
 Cross-platform, single-binary CLI daemon for multi-channel messaging with local LLM inference and task scheduling.
@@ -16,6 +13,8 @@ ROne is a lightweight background process that connects to Telegram, Discord, and
 - **In-memory SQLite** — Schema with `channels`, `messages`, `tasks`, `execution_logs` tables; prepared statements only, no ORM
 - **Task scheduler** — Configurable poll interval, supports one-time and recurring (5-field cron) execution
 - **Execution audit trail** — Every task run is logged with start/finish timestamps, status, result, and error
+- **Hybrid AI Modes** — Switch between local Ollama and Cloud AI providers (OpenAI-compatible) on the fly via commands
+- **Universal Slash Commands** — Control the bot using unified slash commands (`/status`, `/mode`, `/ping`) across all platforms
 - **Graceful shutdown** — SIGINT/SIGTERM handling with context-based cancellation, adapter drain, and DB cleanup
 - **Environment variable overrides** — All sensitive config fields (tokens, chat IDs) can be set via env vars
 - **Cross-platform** — Builds for Linux and Windows from a single codebase (pure Go SQLite, no CGO required)
@@ -62,12 +61,18 @@ go run . start --foreground
 ## CLI Reference
 
 | Command              | Description                                         |
+| Command              | Description                                         |
 |----------------------|-----------------------------------------------------|
+| `/status`, `rone status` | Show system & bot status, active adapters, and models |
+| `/mode <local\|cloud>` | Switch AI provider on the fly                       |
+| `/approval <on\|off>`    | Toggle terminal command user approval safety        |
+| `/tools <on\|off>`       | Toggle the bot's ability to run terminal commands   |
+| `/model <name>`        | Change the active LLM model                         |
+| `/ping`                | Check if the bot is awake and responding            |
 | `rone start`         | Launch daemon. Use `--foreground` to run in terminal |
 | `rone stop`          | Send SIGTERM to running daemon via PID file          |
-| `rone status`        | Check if daemon process is alive                     |
 | `rone reload-config` | Validate config file syntax and required fields      |
-| `rone test-ollama`   | Ping Ollama, list models, verify configured model    |
+| `rone test-ollama`   | Ping local Ollama, list models, verify configured model    |
 | `rone migrate`       | Run schema DDL against temp DB, verify table creation|
 
 ### Global Flags
@@ -87,13 +92,21 @@ All config is in YAML. Copy `config.example.yaml` to `config.yaml`. Environment 
 | `RONE_TELEGRAM_TOKEN`      | `telegram.token`       | string   |
 | `RONE_TELEGRAM_CHAT_ID`    | `telegram.chat_id`     | int64    |
 | `RONE_DISCORD_TOKEN`       | `discord.token`        | string   |
+| `RONE_DISCORD_CHANNEL_ID`  | `discord.channel_id`   | string   |
 | `RONE_SLACK_TOKEN`         | `slack.token`          | string   |
 | `RONE_SLACK_APP_TOKEN`     | `slack.app_token`      | string   |
+| `RONE_SLACK_CHANNEL_ID`    | `slack.channel_id`     | string   |
+| `RONE_OLLAMA_MODE`         | `ollama.mode`          | string   |
 | `RONE_OLLAMA_MODEL`        | `ollama.model`         | string   |
 | `RONE_OLLAMA_ENDPOINT`     | `ollama.endpoint`      | string   |
+| `RONE_OLLAMA_CLOUD_ENDPOINT`| `ollama.cloud_endpoint`| string   |
+| `RONE_OLLAMA_CLOUD_KEY`    | `ollama.cloud_api_key` | string   |
+| `RONE_OLLAMA_CLOUD_MODEL`  | `ollama.cloud_model`   | string   |
 | `RONE_LOG_LEVEL`           | `log.level`            | string   |
 | `RONE_SCHEDULER_INTERVAL`  | `scheduler.interval`   | duration |
 | `RONE_RATE_LIMIT`          | `rate_limit.messages_per_minute` | int |
+| `RONE_TOOLS_ENABLED`       | `tools.enabled`        | bool     |
+| `RONE_TOOLS_REQUIRE_APPROVAL` | `tools.require_approval` | bool |
 
 ### Telegram Debug Mode
 
@@ -143,14 +156,35 @@ docker run -d --name rone -v $(pwd)/config.yaml:/app/config.yaml rone:latest
 
 ## Building
 
+You can build ROne using the standard Go toolchain or the provided `Makefile` for convenience.
+
+### Using Makefile (Recommended)
+
+```bash
+# Build for the current platform (outputs to bin/rone)
+make build
+
+# Build for all supported platforms (outputs to bin/)
+make build-all
+
+# Build specific platforms
+make build-linux
+make build-windows
+
+# Clean build artifacts
+make clean
+```
+
+### Using Go Toolchain Directly
+
 ```bash
 # Current platform
 go build -ldflags "-s -w" -o rone .
 
-# Cross-compile for Linux (from any OS)
+# Cross-compile for Linux (AMD64)
 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o bin/rone-linux-amd64 .
 
-# Cross-compile for Windows
+# Cross-compile for Windows (AMD64)
 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o bin/rone-windows-amd64.exe .
 ```
 

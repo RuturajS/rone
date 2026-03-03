@@ -1,6 +1,6 @@
-# Copyright (c) 2026 RuturajS (ROne). All rights reserved.
-# This code belongs to the author. No modification or republication 
-# is allowed without explicit permission.
+// Copyright (c) 2026 RuturajS (ROne). All rights reserved.
+// This code belongs to the author. No modification or republication 
+// is allowed without explicit permission.
 module github.com/RuturajS/rone
 
 go 1.24.0

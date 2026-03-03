@@ -7,6 +7,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
@@ -25,6 +26,7 @@ func DefaultConfig() *Config {
 			Model:      "llama3.2",
 			Timeout:    30 * time.Second,
 			MaxRetries: 3,
+			Mode:       "local",
 		},
 		Scheduler: SchedulerConfig{
 			Interval: 10 * time.Second,
@@ -79,17 +81,41 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("RONE_DISCORD_TOKEN"); v != "" {
 		cfg.Discord.Token = v
 	}
+	if v := os.Getenv("RONE_DISCORD_CHANNEL_ID"); v != "" {
+		cfg.Discord.ChannelID = v
+	}
 	if v := os.Getenv("RONE_SLACK_TOKEN"); v != "" {
 		cfg.Slack.Token = v
 	}
 	if v := os.Getenv("RONE_SLACK_APP_TOKEN"); v != "" {
 		cfg.Slack.AppToken = v
 	}
+	if v := os.Getenv("RONE_SLACK_CHANNEL_ID"); v != "" {
+		cfg.Slack.ChannelID = v
+	}
 	if v := os.Getenv("RONE_OLLAMA_MODEL"); v != "" {
 		cfg.Ollama.Model = v
+		slog.Info("config override", "env", "RONE_OLLAMA_MODEL", "value", v)
 	}
 	if v := os.Getenv("RONE_OLLAMA_ENDPOINT"); v != "" {
 		cfg.Ollama.Endpoint = v
+		slog.Info("config override", "env", "RONE_OLLAMA_ENDPOINT", "value", v)
+	}
+	if v := os.Getenv("RONE_OLLAMA_CLOUD_ENDPOINT"); v != "" {
+		cfg.Ollama.CloudEndpoint = v
+		slog.Info("config override", "env", "RONE_OLLAMA_CLOUD_ENDPOINT", "value", v)
+	}
+	if v := os.Getenv("RONE_OLLAMA_CLOUD_KEY"); v != "" {
+		cfg.Ollama.CloudAPIKey = v
+		slog.Info("config override", "env", "RONE_OLLAMA_CLOUD_KEY", "value", "***[masked]***")
+	}
+	if v := os.Getenv("RONE_OLLAMA_CLOUD_MODEL"); v != "" {
+		cfg.Ollama.CloudModel = v
+		slog.Info("config override", "env", "RONE_OLLAMA_CLOUD_MODEL", "value", v)
+	}
+	if v := os.Getenv("RONE_OLLAMA_MODE"); v != "" {
+		cfg.Ollama.Mode = v
+		slog.Info("config override", "env", "RONE_OLLAMA_MODE", "value", v)
 	}
 	if v := os.Getenv("RONE_LOG_LEVEL"); v != "" {
 		cfg.Log.Level = v

@@ -31,7 +31,16 @@ func runTestOllama(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	client := ollama.NewClient(cfg.Ollama.Endpoint, cfg.Ollama.Model, cfg.Ollama.Timeout, cfg.Ollama.MaxRetries)
+	client := ollama.NewClient(
+		cfg.Ollama.Endpoint,
+		cfg.Ollama.Model,
+		cfg.Ollama.CloudEndpoint,
+		cfg.Ollama.CloudModel,
+		cfg.Ollama.CloudAPIKey,
+		cfg.Ollama.Mode,
+		cfg.Ollama.Timeout,
+		cfg.Ollama.MaxRetries,
+	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
