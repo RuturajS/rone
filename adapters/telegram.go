@@ -151,11 +151,30 @@ func (t *TelegramAdapter) Send(channelID string, message string) error {
 	if err != nil {
 		return fmt.Errorf("telegram: invalid channel id: %w", err)
 	}
-	msg := tgbotapi.NewMessage(chatID, message)
-	_, err = t.bot.Send(msg)
-	if err != nil {
-		return fmt.Errorf("telegram: send: %w", err)
+
+	// Telegram max message length is 4096. To be safe with markdown parsing,
+	// we chunk the response at 4000 runes.
+	const chunkSize = 4000
+	runes := []rune(message)
+
+	for i := 0; i < len(runes); i += chunkSize {
+		end := i + chunkSize
+		if end > len(runes) {
+			end = len(runes)
+		}
+		
+		chunk := string(runes[i:end])
+		msg := tgbotapi.NewMessage(chatID, chunk)
+		
+		// If using Markdown/HTML parsing, consider enabling it here like so:
+		// msg.ParseMode = tgbotapi.ModeMarkdown
+		
+		_, err = t.bot.Send(msg)
+		if err != nil {
+			return fmt.Errorf("telegram: send chunk: %w", err)
+		}
 	}
+
 	slog.Debug("telegram: message sent", "chat_id", chatID, "length", len(message))
 	return nil
 }

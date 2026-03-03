@@ -27,22 +27,28 @@ type TelegramConfig struct {
 }
 
 type DiscordConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Token   string `yaml:"token"`
+	Enabled   bool   `yaml:"enabled"`
+	Token     string `yaml:"token"`
+	ChannelID string `yaml:"channel_id"`
 }
 
 type SlackConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	Token    string `yaml:"token"`
-	AppToken string `yaml:"app_token"`
+	Enabled   bool   `yaml:"enabled"`
+	Token     string `yaml:"token"`
+	AppToken  string `yaml:"app_token"`
+	ChannelID string `yaml:"channel_id"`
 }
 
 type OllamaConfig struct {
-	Endpoint   string        `yaml:"endpoint"`
-	Model      string        `yaml:"model"`   // current/default model
-	Models     []string      `yaml:"models"`  // list of acceptable models
-	Timeout    time.Duration `yaml:"timeout"`
-	MaxRetries int           `yaml:"max_retries"`
+	Endpoint      string        `yaml:"endpoint"`
+	Model         string        `yaml:"model"`   // current/default model
+	Models        []string      `yaml:"models"`  // list of acceptable models
+	Timeout       time.Duration `yaml:"timeout"`
+	MaxRetries    int           `yaml:"max_retries"`
+	CloudEndpoint string        `yaml:"cloud_endpoint"`
+	CloudAPIKey   string        `yaml:"cloud_api_key"`
+	CloudModel    string        `yaml:"cloud_model"`
+	Mode          string        `yaml:"mode"` // "local" or "cloud"
 }
 
 type ToolsConfig struct {

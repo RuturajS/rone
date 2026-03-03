@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,9 @@ type Daemon struct {
 	// Key: platform:channelID, Value: command to execute
 	pendingCmds map[string]string
 	mu          sync.RWMutex
+
+	// Health status
+	ollamaConnected bool
 }
 
 // New creates a new Daemon from the given config.
@@ -47,36 +51,44 @@ func New(cfg *config.Config) (*Daemon, error) {
 	ollamaClient := ollama.NewClient(
 		cfg.Ollama.Endpoint,
 		cfg.Ollama.Model,
+		cfg.Ollama.CloudEndpoint,
+		cfg.Ollama.CloudModel,
+		cfg.Ollama.CloudAPIKey,
+		cfg.Ollama.Mode,
 		cfg.Ollama.Timeout,
 		cfg.Ollama.MaxRetries,
 	)
 
-	slog.Info("checking ollama connectivity...", "endpoint", cfg.Ollama.Endpoint, "model", cfg.Ollama.Model)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	slog.Info("checking ollama connectivity...", "mode", cfg.Ollama.Mode, "model", ollamaClient.GetModel())
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	tags, err := ollamaClient.Ping(ctx)
 	cancel()
-	if err != nil {
-		slog.Warn("ollama: NOT reachable — AI responses will fail", "error", err)
-	} else {
-		modelFound := false
-		for _, m := range tags.Models {
-			if m.Name == cfg.Ollama.Model {
-				modelFound = true
-				break
-			}
-		}
-		if modelFound {
-			slog.Info("ollama: OK", "model", cfg.Ollama.Model, "available_models", len(tags.Models))
-		} else {
-			slog.Warn("ollama: reachable but configured model NOT found",
-				"model", cfg.Ollama.Model,
-				"available_models", len(tags.Models),
-			)
-		}
-	}
 
-	if len(cfg.Ollama.Models) > 0 {
-		slog.Info("ollama: models available in config", "models", cfg.Ollama.Models)
+	var ollamaConnected bool
+	if err != nil {
+		slog.Warn("ollama: NOT reachable — AI responses may fail", "error", err)
+		ollamaConnected = false
+	} else {
+		if cfg.Ollama.Mode == "local" {
+			modelFound := false
+			for _, m := range tags.Models {
+				if m.Name == cfg.Ollama.Model {
+					modelFound = true
+					break
+				}
+			}
+			if modelFound {
+				slog.Info("ollama: OK", "model", cfg.Ollama.Model, "available_models", len(tags.Models))
+			} else {
+				slog.Warn("ollama: reachable but configured model NOT found",
+					"model", cfg.Ollama.Model,
+					"available_models", len(tags.Models),
+				)
+			}
+		} else {
+			slog.Info("ollama cloud: reachable", "model", cfg.Ollama.CloudModel)
+		}
+		ollamaConnected = true
 	}
 
 	adapterMap := make(map[string]adapters.Adapter)
@@ -106,12 +118,13 @@ func New(cfg *config.Config) (*Daemon, error) {
 	sched := scheduler.New(cfg.Scheduler.Interval, db, adapterMap, ollamaClient)
 
 	return &Daemon{
-		cfg:         cfg,
-		db:          db,
-		ollama:      ollamaClient,
-		adapters:    adapterMap,
-		scheduler:   sched,
-		pendingCmds: make(map[string]string),
+		cfg:             cfg,
+		db:              db,
+		ollama:          ollamaClient,
+		adapters:        adapterMap,
+		scheduler:       sched,
+		pendingCmds:     make(map[string]string),
+		ollamaConnected: ollamaConnected,
 	}, nil
 }
 
@@ -119,15 +132,13 @@ func New(cfg *config.Config) (*Daemon, error) {
 func (d *Daemon) Run(ctx context.Context) error {
 	slog.Info("==========================================")
 	slog.Info("  ROne daemon starting")
-	slog.Info("  Author: Ruturaj Sharbidre")
 	slog.Info("  GitHub: github.com/RuturajS")
+	slog.Info("  Authored by Ruturaj Sharbidre")
 	slog.Info("==========================================")
 	slog.Info("config summary",
 		"adapters", len(d.adapters),
+		"mode", d.ollama.GetMode(),
 		"ollama_model", d.ollama.GetModel(),
-		"ollama_endpoint", d.cfg.Ollama.Endpoint,
-		"scheduler_interval", d.cfg.Scheduler.Interval,
-		"log_level", d.cfg.Log.Level,
 		"tools_enabled", d.cfg.Tools.Enabled,
 		"require_approval", d.cfg.Tools.RequireApproval,
 	)
@@ -138,6 +149,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 
 	var wg sync.WaitGroup
+
+	// Provide a small delay for adapters to connect before sending greeting
+	go func() {
+		time.Sleep(2 * time.Second)
+		d.notifyOnline()
+	}()
 
 	wg.Add(1)
 	go func() {
@@ -159,6 +176,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	slog.Info("daemon running — press Ctrl+C to stop")
 	wg.Wait()
 
+	// Shutdown phase
+	d.notifyOffline()
+
 	slog.Info("daemon shutting down")
 	if err := d.db.Close(); err != nil {
 		slog.Error("close database", "error", err)
@@ -166,6 +186,58 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	slog.Info("daemon stopped")
 	return nil
+}
+
+// notifyOnline sends a greeting message to active adapters.
+func (d *Daemon) notifyOnline() {
+	greeting := fmt.Sprintf("🌟 *%s, ROne is Online!* 🌟\n\nI'm now monitoring your messages and ready to assist. 🚀", getGreeting())
+	funny := "\n\n_P.S. I promised not to overthink, but I’ve already indexed the meaning of life. (It’s 42, but with better formatting.)_ 😉"
+	
+	msg := greeting + funny
+	
+	if !d.ollamaConnected {
+		msg += "\n\n⚠️ *Alert:* Local Ollama instance is NOT reachable! AI features will be limited until it's back online. Please check your local Ollama service. 🛠️"
+	}
+
+	d.broadcast(msg)
+}
+
+func getGreeting() string {
+	hour := time.Now().Hour()
+	switch {
+	case hour >= 5 && hour < 12:
+		return "Good Morning"
+	case hour >= 12 && hour < 17:
+		return "Good Afternoon"
+	case hour >= 17 && hour < 21:
+		return "Good Evening"
+	default:
+		return "Good Night"
+	}
+}
+
+// notifyOffline sends a shutdown message.
+func (d *Daemon) notifyOffline() {
+	farewell := "😴 *ROne is going offline now.* 😴\n\nI'm shutting down for maintenance or a quick nap. See you soon! 👋\n\n_System going quiet... Over and out!_ 📡"
+	d.broadcast(farewell)
+}
+
+// broadcast sends a message to the primary channel of each adapter.
+func (d *Daemon) broadcast(msg string) {
+	// Telegram
+	if adapter, ok := d.adapters["telegram"]; ok && d.cfg.Telegram.ChatID != 0 {
+		_ = adapter.Send(strconv.FormatInt(d.cfg.Telegram.ChatID, 10), msg)
+	}
+
+	// Discord
+	if adapter, ok := d.adapters["discord"]; ok && d.cfg.Discord.ChannelID != "" {
+		_ = adapter.Send(d.cfg.Discord.ChannelID, msg)
+	}
+
+	// Slack
+	if adapter, ok := d.adapters["slack"]; ok && d.cfg.Slack.ChannelID != "" {
+		_ = adapter.Send(d.cfg.Slack.ChannelID, msg)
+	}
 }
 
 // makeHandler returns the message handler callback.
@@ -244,41 +316,97 @@ func (d *Daemon) makeHandler(ctx context.Context) adapters.MessageHandler {
 
 // handleInternalCommand processes commands specifically for controlling ROne.
 func (d *Daemon) handleInternalCommand(adapter adapters.Adapter, msg adapters.IncomingMessage) bool {
-	content := strings.ToLower(strings.TrimSpace(msg.Content))
-	
-	// Trigger on "rone" or "/rone"
-	if !strings.HasPrefix(content, "rone") && !strings.HasPrefix(content, "/rone") {
+	content := strings.TrimSpace(msg.Content)
+	if content == "" {
 		return false
 	}
 
-	parts := strings.Fields(content)
-	if len(parts) == 1 {
-		// Just "rone" — show main menu
-		help := "🤖 *ROne Control Center*\n\n" +
-			"Available options:\n" +
-			"• `rone status` - Show system & bot status\n" +
-			"• `rone approval on` - Always ask before running commands\n" +
-			"• `rone approval off` - Run commands automatically (Warning!)\n" +
-			"• `rone tools on/off` - Toggle terminal tools feature\n" +
-			"• `rone model` - List or switch LLM models\n\n" +
-			"*Author:* Ruturaj Sharbidre"
-		_ = adapter.Send(msg.ChannelID, help)
-		return true
+	// Standardize input
+	lcContent := strings.ToLower(content)
+	parts := strings.Fields(lcContent)
+	if len(parts) == 0 {
+		return false
 	}
 
-	cmd := parts[1]
+	var cmd string
+	var isExplicitRone bool
+
+	// 1. Check for "rone ..." or "/rone ..." prefix
+	if strings.HasPrefix(parts[0], "rone") || strings.HasPrefix(parts[0], "/rone") {
+		isExplicitRone = true
+		if len(parts) == 1 {
+			// Just typing "rone" or "/rone" -> help
+			cmd = "help"
+		} else {
+			cmd = parts[1]
+		}
+	} else if strings.HasPrefix(parts[0], "/") {
+		// 2. Check for direct "/cmd" like "/status" or "/ping"
+		cmd = strings.TrimPrefix(parts[0], "/")
+		// Handle Telegram "/cmd@botname" suffix
+		if atIdx := strings.Index(cmd, "@"); atIdx != -1 {
+			cmd = cmd[:atIdx]
+		}
+	} else {
+		// Not a command
+		return false
+	}
+
+	// Switch on specific commands
 	switch cmd {
-	case "status":
-		status := fmt.Sprintf("📊 *Status*\n\n• *Model:* %s\n• *Approval Mode:* %v\n• *Tools Enabled:* %v\n• *Adapters:* %d active\n• *Models in Config:* %d", 
-			d.ollama.GetModel(), d.cfg.Tools.RequireApproval, d.cfg.Tools.Enabled, len(d.adapters), len(d.cfg.Ollama.Models))
-		_ = adapter.Send(msg.ChannelID, status)
-		
-	case "approval":
-		if len(parts) < 3 {
-			_ = adapter.Send(msg.ChannelID, "❓ Specify `on` or `off`. Example: `rone approval off`")
+	case "help", "rone":
+		help := "🤖 *ROne Control Center*\n\n" +
+			"Available options:\n" +
+			"• `rone status` (or `/status`) - Show system & bot status\n" +
+			"• `rone mode <local|cloud>` (or `/mode`) - Switch AI provider\n" +
+			"• `rone approval <on|off>` (or `/approval`) - Toggle command safety\n" +
+			"• `rone tools <on|off>` (or `/tools`) - Toggle terminal access\n" +
+			"• `rone model <name>` (or `/model`) - Change LLM model\n" +
+			"• `rone ping` (or `/ping`) - Check if I'm awake\n\n" +
+			"Commands work with or without the `rone` prefix!"
+		_ = adapter.Send(msg.ChannelID, help)
+		return true
+
+	case "ping":
+		responses := []string{
+			"Pong! 🏓 (I was actually mapping the stars, but for you, I'll pause.)",
+			"I'm awake! 🤖 (Mostly... just finishing my digital coffee.)",
+			"Still here! 🌐 My circuits are buzzing with excitement.",
+			"Ping received. 📡 I'm 100% functional and 110% ready to be helpful.",
+		}
+		idx := time.Now().UnixNano() % int64(len(responses))
+		_ = adapter.Send(msg.ChannelID, responses[idx])
+		return true
+
+	case "mode":
+		if len(parts) < (map[bool]int{true: 3, false: 2}[isExplicitRone]) {
+			_ = adapter.Send(msg.ChannelID, fmt.Sprintf("🧠 *Current Mode:* `%s`", d.ollama.GetMode()))
 			return true
 		}
-		mode := parts[2]
+		newMode := parts[len(parts)-1]
+		if newMode != "local" && newMode != "cloud" {
+			_ = adapter.Send(msg.ChannelID, "❓ Unknown mode. Use `local` or `cloud`.")
+			return true
+		}
+		if err := d.ollama.SwitchMode(newMode); err != nil {
+			_ = adapter.Send(msg.ChannelID, "❌ Failed to switch mode: "+err.Error())
+			return true
+		}
+		_ = adapter.Send(msg.ChannelID, fmt.Sprintf("✅ *AI Mode Switched to:* `%s`", newMode))
+		return true
+
+	case "status":
+		status := fmt.Sprintf("📊 *Status*\n\n• *Mode:* %s\n• *Model:* %s\n• *Approval Mode:* %v\n• *Tools Enabled:* %v\n• *Adapters:* %d active\n• *Models in Config:* %d", 
+			d.ollama.GetMode(), d.ollama.GetModel(), d.cfg.Tools.RequireApproval, d.cfg.Tools.Enabled, len(d.adapters), len(d.cfg.Ollama.Models))
+		_ = adapter.Send(msg.ChannelID, status)
+		return true
+		
+	case "approval":
+		if len(parts) < (map[bool]int{true: 3, false: 2}[isExplicitRone]) {
+			_ = adapter.Send(msg.ChannelID, "❓ Specify `on` or `off`. Example: `/approval off`")
+			return true
+		}
+		mode := parts[len(parts)-1]
 		if mode == "on" {
 			d.cfg.Tools.RequireApproval = true
 			_ = adapter.Send(msg.ChannelID, "✅ *Approval Mode:* ON. I will now ask for permission before running terminal commands.")
@@ -288,13 +416,14 @@ func (d *Daemon) handleInternalCommand(adapter adapters.Adapter, msg adapters.In
 		} else {
 			_ = adapter.Send(msg.ChannelID, "❓ Unknown mode. Use `on` or `off`.")
 		}
+		return true
 
 	case "tools":
-		if len(parts) < 3 {
-			_ = adapter.Send(msg.ChannelID, "❓ Specify `on` or `off`. Example: `rone tools off`")
+		if len(parts) < (map[bool]int{true: 3, false: 2}[isExplicitRone]) {
+			_ = adapter.Send(msg.ChannelID, "❓ Specify `on` or `off`. Example: `/tools off`")
 			return true
 		}
-		mode := parts[2]
+		mode := parts[len(parts)-1]
 		if mode == "on" {
 			d.cfg.Tools.Enabled = true
 			_ = adapter.Send(msg.ChannelID, "✅ *Tools:* Enabled. I can now run terminal commands.")
@@ -302,47 +431,48 @@ func (d *Daemon) handleInternalCommand(adapter adapters.Adapter, msg adapters.In
 			d.cfg.Tools.Enabled = false
 			_ = adapter.Send(msg.ChannelID, "🚫 *Tools:* Disabled. I will only engage in conversation.")
 		}
+		return true
 
 	case "model":
-		if len(parts) < 3 {
-			// Show current model and listed models
-			msgText := fmt.Sprintf("🧠 *Current LLM:* `%s`", d.ollama.GetModel())
+		if len(parts) < (map[bool]int{true: 3, false: 2}[isExplicitRone]) {
+			msgText := fmt.Sprintf("🧠 *Current Mode:* `%s`\n🧠 *Current LLM:* `%s`", d.ollama.GetMode(), d.ollama.GetModel())
 			if len(d.cfg.Ollama.Models) > 0 {
 				msgText += "\n\n*Available from config:*\n"
 				for _, m := range d.cfg.Ollama.Models {
 					msgText += fmt.Sprintf("• `%s`\n", m)
 				}
 				msgText += "\nUse `rone model <name>` to switch."
-			} else {
-				msgText += "\n\n(No additional models listed in config.yaml)"
 			}
 			_ = adapter.Send(msg.ChannelID, msgText)
 			return true
 		}
-
-		newModel := parts[2]
-		found := false
-		for _, m := range d.cfg.Ollama.Models {
-			if m == newModel {
-				found = true
-				break
+		newModel := parts[len(parts)-1]
+		if d.ollama.GetMode() == "local" {
+			found := false
+			for _, m := range d.cfg.Ollama.Models {
+				if m == newModel {
+					found = true
+					break
+				}
+			}
+			if !found {
+				_ = adapter.Send(msg.ChannelID, fmt.Sprintf("❌ Model `%s` is NOT in the allowed list for local mode.", newModel))
+				return true
 			}
 		}
-
-		if !found {
-			_ = adapter.Send(msg.ChannelID, fmt.Sprintf("❌ Model `%s` is not in the allowed list in config.yaml", newModel))
-			return true
-		}
-
 		d.ollama.SetModel(newModel)
-		d.cfg.Ollama.Model = newModel // update config in memory
 		_ = adapter.Send(msg.ChannelID, fmt.Sprintf("✅ *Model switched to:* `%s`", newModel))
+		return true
 
 	default:
-		_ = adapter.Send(msg.ChannelID, "❓ Unknown command. Type `rone` for help.")
+		// If it started with "rone " or "/rone ", and we don't know the subcommand, show error.
+		if isExplicitRone {
+			_ = adapter.Send(msg.ChannelID, "❓ Unknown command. Type `rone` for help.")
+			return true
+		}
+		// If it's just a random "/something", don't intercept it (let AI handle it)
+		return false
 	}
-
-	return true
 }
 
 // handlePendingApproval checks if a message is an approval for a pending command.
@@ -389,10 +519,10 @@ func (d *Daemon) handleConversation(ctx context.Context, adapter adapters.Adapte
 	var err error
 
 	if d.cfg.Tools.Enabled {
-		slog.Info("generating response (tools enabled)...", "model", d.ollama.GetModel())
+		slog.Info("generating response (tools enabled)...", "mode", d.ollama.GetMode(), "model", d.ollama.GetModel())
 		response, err = d.ollama.GenerateWithTools(ctx, msg.Content)
 	} else {
-		slog.Info("generating response (tools disabled)...", "model", d.ollama.GetModel())
+		slog.Info("generating response (tools disabled)...", "mode", d.ollama.GetMode(), "model", d.ollama.GetModel())
 		response, err = d.ollama.Generate(ctx, msg.Content)
 	}
 
@@ -485,4 +615,3 @@ func (d *Daemon) executeAndReply(ctx context.Context, adapter adapters.Adapter, 
 		_ = d.db.MarkResponded(msgID)
 	}
 }
-
