@@ -30,6 +30,12 @@ ollama:
     - "mistral"
   timeout: "30s"
   max_retries: 3
+  
+  # Cloud API Configuration
+  mode: "local"                 # Switch to "cloud" to use an external API. RONE_OLLAMA_MODE
+  cloud_endpoint: "https://api.ollama.com" # RONE_OLLAMA_CLOUD_ENDPOINT
+  cloud_model: "llama3.2"       # RONE_OLLAMA_CLOUD_MODEL
+  cloud_api_key: ""             # RONE_OLLAMA_CLOUD_KEY (Send exactly as configured)
 
 # Tool execution — allows LLM to run system commands
 tools:
