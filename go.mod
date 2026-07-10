@@ -1,9 +1,9 @@
 // Copyright (c) 2026 RuturajS (ROne). All rights reserved.
-// This code belongs to the author. No modification or republication 
+// This code belongs to the author. No modification or republication
 // is allowed without explicit permission.
 module github.com/RuturajS/rone
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/bwmarrin/discordgo v0.28.1
@@ -24,8 +24,8 @@ require (
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	golang.org/x/crypto v0.48.0 // indirect
-	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/crypto v0.52.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 	modernc.org/gc/v3 v3.0.0-20240107210532-573471604cb6 // indirect
 	modernc.org/libc v1.55.3 // indirect
 	modernc.org/mathutil v1.6.0 // indirect
@@ -33,4 +33,3 @@ require (
 	modernc.org/strutil v1.2.0 // indirect
 	modernc.org/token v1.1.0 // indirect
 )
-
